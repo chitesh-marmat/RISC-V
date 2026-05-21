@@ -1,7 +1,6 @@
-# ELL305 — RISC-V Matrix-Vector Assignment
+#  RISC-V Matrix-Vector Implementation
 
 **Course:** ELL305, IIT Delhi  
-**Entry:** 2023MT10091  
 **ISA:** RV32IMF (RARS simulator)
 
 ---
@@ -39,11 +38,11 @@ Or via the RARS GUI: File → Open `final.asm` → Assemble (F3) → Run (F5).
 
 The program is split into three subroutines, all following the RISC-V calling convention (callee-saved `s0`/`s1` saved on stack).
 
-### `matvec_mul` — Matrix-vector multiply
+#### `matvec_mul` — Matrix-vector multiply
 Computes `Y[row] = Σ A[row][col] * X[col]` with a nested row/column loop.  
 Row-major addressing: `&A[i][j] = base + (i*N + j)*4`.
 
-### `det_approx` — Determinant via LU decomposition
+#### `det_approx` — Determinant via LU decomposition
 Performs Gaussian elimination with partial pivoting **in-place** on matrix `A`.  
 Per pivot column `i`:
 - Find the row with the largest `|A[k][i]|` (abs via `fmv.x.w` + bitmask `0x7FFFFFFF`)
@@ -54,7 +53,7 @@ The running product of all pivots (with sign) gives `det(A)`.
 
 > **Note:** `det_approx` overwrites `A` — `matvec_mul` must be called first.
 
-### `compare_sum_det` — Comparison
+#### `compare_sum_det` — Comparison
 Sums `Y[0..N-1]` and compares against the stored `det_result` using `flt.s`.
 
 ---
