@@ -76,7 +76,7 @@ Sums `Y[0..N-1]` and compares against the stored `det_result` using `flt.s`.
 ├── final.asm          # submitted solution
 ├── docs/
 │   ├── Assignment_RV32IMF_Matrix_Determinant_6x6.pdf   # problem statement
-│   └── ELL305-2023MT10091.pdf                          # submission report
+│   └── report.pdf                                       # submission report
 └── drafts/            # earlier iterations
     ├── round1.asm
     ├── change1.asm
