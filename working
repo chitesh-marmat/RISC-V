@@ -1,0 +1,397 @@
+.data
+# Option A
+N: .word 6
+ 
+    
+A: .float
+  1.0,  2.0,  3.0,  0.5,  1.5,  2.5,
+  0.5,  1.0,  1.5,  0.2,  0.8,  1.1,
+  1.5,  3.0,  4.5,  0.7,  2.3,  3.6,
+  2.0, -1.0,  0.5,  1.2,  0.4,  0.9,
+ -0.5,  0.3,  1.1,  0.6,  1.7, -0.2,
+  0.8,  1.4, -0.3,  0.9,  0.5,  1.2
+
+
+X: .float 1.0, 2.0, 3.0, 4.0, 5.0, 6.0
+
+Y: .space 24
+
+det_result: .float 0.0
+comparison_flag: .word 0
+
+one:      .float  1.0
+neg_one:  .float -1.0
+eps_const: .float 1.0e-7
+
+ 
+
+
+############################################################
+.text
+.globl main
+main:
+    # call matvec_mul(A, X, Y, N)
+    la   a0, A
+    la   a1, X
+    la   a2, Y
+    la   t0, N
+    lw   a3, 0(t0)
+    jal  ra, matvec_mul
+
+    # print Y
+    la   s2, Y
+    la   t0, N
+    lw   t1, 0(t0)
+    li   t2, 0
+
+print_loop:
+    bge  t2, t1, end_y_print
+
+    slli t3, t2, 2
+    add  t3, s2, t3
+    flw  fa0, 0(t3)
+    li   a7, 2          # print float
+    ecall
+
+    # print space
+    li   a7, 11
+    li   a0, 32         # ' '
+    ecall
+
+    addi t2, t2, 1
+    j    print_loop
+
+end_y_print:
+    # print ONE newline after full vector
+    li   a7, 11
+    li   a0, 10         # '\n'
+    ecall
+
+    j phase2
+
+
+phase2:
+    # compute determinant
+    jal  ra, det_approx
+
+    # print determinant
+    la   t0, det_result
+    flw  fa0, 0(t0)
+    li   a7, 2
+    ecall
+
+    li   a7, 11
+    li   a0, 10
+    ecall
+
+    # compare sum(Y) < det ?
+    jal  ra, compare_sum_det
+
+    la   t5, comparison_flag
+    lw   a0, 0(t5)
+    li   a7, 1
+    ecall
+
+    li   a7, 11
+    li   a0, 10
+    ecall
+
+    li   a7, 10
+    ecall
+
+
+############################################################
+# matvec_mul (your original code, untouched)
+############################################################
+.globl matvec_mul
+matvec_mul:
+    addi sp, sp, -8
+    sw   s0, 4(sp)
+    sw   s1, 0(sp)
+
+    mv   a4, a0
+    mv   a5, a1
+    mv   s0, a2
+    mv   s1, a3
+
+    li   t0, 0
+
+outer_loop:
+    bge  t0, s1, matvec_end
+
+    mul  t2, t0, s1
+    fmv.s.x ft3, x0
+
+    li   t1, 0
+inner_loop:
+    bge  t1, s1, store_row
+
+    add  t3, t2, t1
+    slli t3, t3, 2
+    add  t4, a4, t3
+    flw  ft0, 0(t4)
+
+    slli t5, t1, 2
+    add  t5, a5, t5
+    flw  ft1, 0(t5)
+
+    fmul.s ft2, ft0, ft1
+    fadd.s ft3, ft3, ft2
+
+    addi t1, t1, 1
+    j    inner_loop
+
+store_row:
+    fmv.s fa0, ft3
+    slli t6, t0, 2
+    add  t6, s0, t6
+    fsw  fa0, 0(t6)
+
+    addi t0, t0, 1
+    j    outer_loop
+
+matvec_end:
+    lw   s1, 0(sp)
+    lw   s0, 4(sp)
+    addi sp, sp, 8
+    jr   ra
+
+
+############################################################
+# det_approx — CLEAN, WORKING, NO t7
+############################################################
+############################################################
+# det_approx  —  LU decomposition with partial pivoting
+# RESULT:
+#   det_result = determinant (float)
+############################################################
+.globl det_approx
+det_approx:
+    addi sp, sp, -32
+    sw   s0, 28(sp)
+    sw   s1, 24(sp)
+    sw   s2, 20(sp)
+    sw   s3, 16(sp)
+
+    la   s0, A
+    la   t0, N
+    lw   t1, 0(t0)          # t1 = N
+
+    li   t6, 1              # sign = +1
+
+    # running determinant accumulator in ft9 = 1.0
+    la   a0, one
+    flw  ft9, 0(a0)
+
+    li   t2, 0              # pivot index i
+
+############################################################
+#   PIVOT LOOP  (i = 0..N-1)
+############################################################
+pivot_outer:
+    bge  t2, t1, finish_det
+
+    #### 1) FIND BEST PIVOT ROW (max abs in column i)
+    mv   t3, t2              # t3 = max_row
+
+    # load A[i][i] as initial max
+    mul  a2, t2, t1          # row*i = i*N
+    add  a2, a2, t2          # + i
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft0, 0(a3)          # ft0 = A[i][i]
+
+    # ft1 = |pivot|
+    fmv.x.w a4, ft0
+    li      a5, 0x7fffffff
+    and     a4, a4, a5
+    fmv.w.x ft1, a4
+
+    # search rows k = i+1..N-1
+    addi s1, t2, 1
+pivot_search:
+    bge  s1, t1, pivot_swap
+
+    # load A[k][i]
+    mul  a2, s1, t1
+    add  a2, a2, t2
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft2, 0(a3)
+
+    # ft3 = |A[k][i]|
+    fmv.x.w a4, ft2
+    and     a4, a4, a5
+    fmv.w.x ft3, a4
+
+    # update pivot if ft3 > ft1
+    flt.s a4, ft1, ft3
+    beq  a4, x0, no_pivot_upd
+    mv   t3, s1
+    fmv.s ft1, ft3
+no_pivot_upd:
+    addi s1, s1, 1
+    j    pivot_search
+
+############################################################
+#   ROW SWAP  (if pivot row changed)
+############################################################
+pivot_swap:
+    beq  t3, t2, no_swap
+
+    li   a6, 0
+swap_loop:
+    bge  a6, t1, swap_done
+
+    # A[i][a6]
+    mul  a2, t2, t1
+    add  a2, a2, a6
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft4, 0(a3)
+
+    # A[t3][a6]
+    mul  a2, t3, t1
+    add  a2, a2, a6
+    slli a2, a2, 2
+    add  a5, s0, a2
+    flw  ft5, 0(a5)
+
+    # swap
+    fsw  ft4, 0(a5)
+    fsw  ft5, 0(a3)
+
+    addi a6, a6, 1
+    j    swap_loop
+
+swap_done:
+    # flip sign
+    li   a6, -1
+    mul  t6, t6, a6
+
+    # apply sign flip in determinant accumulator
+    la   a0, neg_one
+    flw  ft8, 0(a0)
+    fmul.s ft9, ft9, ft8
+
+no_swap:
+
+############################################################
+#   LOAD UPDATED PIVOT
+############################################################
+    mul  a2, t2, t1
+    add  a2, a2, t2
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft0, 0(a3)         # pivot = A[i][i]
+
+    #### accumulate determinant *= pivot
+    fmul.s ft9, ft9, ft0
+
+############################################################
+#   ELIMINATION  (k = i+1..N-1, j = i+1..N-1)
+############################################################
+    addi s1, t2, 1          # k
+elim_rows:
+    bge  s1, t1, next_i
+
+    # factor = A[k][i] / pivot
+    mul  a2, s1, t1
+    add  a2, a2, t2
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft4, 0(a3)
+
+    fdiv.s ft5, ft4, ft0    # factor
+
+    # j loop
+    addi t4, t2, 1          # j = i+1
+elim_cols:
+    bge  t4, t1, elim_done
+
+    # load A[i][j]
+    mul  a2, t2, t1
+    add  a2, a2, t4
+    slli a2, a2, 2
+    add  a3, s0, a2
+    flw  ft7, 0(a3)
+
+    # load A[k][j]
+    mul  a2, s1, t1
+    add  a2, a2, t4
+    slli a2, a2, 2
+    add  a5, s0, a2
+    flw  ft8, 0(a5)
+
+    # A[k][j] -= factor * A[i][j]
+    fmul.s ft6, ft5, ft7, dyn     # ft6 = factor * A[i][j]
+fsub.s ft8, ft8, ft6, dyn     # A[k][j] -= ft6
+    fsw   ft8, 0(a5)
+
+    addi t4, t4, 1
+    j    elim_cols
+
+elim_done:
+    addi s1, s1, 1
+    j    elim_rows
+
+############################################################
+#   NEXT PIVOT i++
+############################################################
+next_i:
+    addi t2, t2, 1
+    j    pivot_outer
+
+
+############################################################
+#   FINISH — store determinant from ft9
+############################################################
+finish_det:
+    fmv.s fa0, ft9
+    la   a3, det_result
+    fsw  fa0, 0(a3)
+
+    lw   s3, 16(sp)
+    lw   s2, 20(sp)
+    lw   s1, 24(sp)
+    lw   s0, 28(sp)
+    addi sp, sp, 32
+    jr   ra
+ 
+
+
+############################################################
+# compare_sum_det (unchanged)
+############################################################
+.globl compare_sum_det
+compare_sum_det:
+    addi sp, sp, -8
+    sw   s0, 4(sp)
+    sw   s1, 0(sp)
+
+    la   s0, Y
+    la   t0, N
+    lw   t1, 0(t0)
+
+    fmv.s.x fa0, x0
+    li   s1, 0
+sum_loop:
+    bge  s1, t1, sum_done
+    slli t2, s1, 2
+    add  t2, s0, t2
+    flw  ft0, 0(t2)
+    fadd.s fa0, fa0, ft0
+    addi s1, s1, 1
+    j    sum_loop
+
+sum_done:
+    la   t2, det_result
+    flw  ft1, 0(t2)
+    flt.s a0, fa0, ft1
+    la   t3, comparison_flag
+    sw   a0, 0(t3)
+
+    lw   s1, 0(sp)
+    lw   s0, 4(sp)
+    addi sp, sp, 8
+    jr   ra
